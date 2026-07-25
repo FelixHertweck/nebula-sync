@@ -1,0 +1,52 @@
+name: sync-upstream
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: github.repository == 'FelixHertweck/nebula-sync'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/lovelaze/nebula-sync.git
+          git fetch upstream main
+
+      - name: Update sync branch
+        run: |
+          git fetch upstream main:upstream-sync --force
+          git push origin upstream-sync --force
+
+      - name: Open or update pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git merge-base --is-ancestor upstream-sync main; then
+            echo "Nothing new upstream."
+            exit 0
+          fi
+
+          existing=$(gh pr list --state open --head upstream-sync --base main --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            echo "PR #$existing already open, upstream-sync was force-pushed above so it updates automatically."
+            exit 0
+          fi
+
+          gh pr create \
+            --title "Sync with upstream (lovelaze/nebula-sync)" \
+            --body "Automated sync: brings in new commits from [lovelaze/nebula-sync](https://github.com/lovelaze/nebula-sync). Review and resolve any conflicts before merging." \
+            --head upstream-sync \
+            --base main \
+            --assignee FelixHertweck
